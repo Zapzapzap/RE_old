@@ -19,12 +19,11 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Patch Gradle, App.kt, and Manifest for API 16
+      - name: Patch Gradle, MainDexList, App.kt, and Manifest for API 16
         run: |
           sed -i 's/minSdk = [0-9]\+/minSdk = 16/g' app/build.gradle.kts
-          cat << 'EOF' > app/multidex-config.pro
-          -keep class com.pedro.streamer.App { *; }
-          -keep class androidx.multidex.** { *; }
+          cat << 'EOF' > app/maindexlist.txt
+          com/pedro/streamer/App.class
           EOF
           python3 -c '
           import re
@@ -35,6 +34,13 @@ jobs:
           if "androidx.multidex:multidex" not in gradle:
               gradle = gradle.replace("dependencies {", "dependencies {\n    implementation(\"androidx.multidex:multidex:2.0.1\")")
 
+          # Inject multiDexEnabled and multiDexKeepFile directly into existing defaultConfig
+          gradle = gradle.replace(
+              "minSdk = 16",
+              "minSdk = 16\n        multiDexEnabled = true\n        multiDexKeepFile = file(\"maindexlist.txt\")",
+              1
+          )
+
           gradle = re.sub(r"release\s*\{[^}]*\}", """release {
                   initWith(getByName("debug"))
                   isDebuggable = false
@@ -43,21 +49,10 @@ jobs:
                   signingConfig = null
               }""", gradle)
 
-          gradle += """
-
-          android {
-              defaultConfig {
-                  minSdk = 16
-                  multiDexEnabled = true
-                  multiDexKeepProguard = file("multidex-config.pro")
-              }
-          }
-          """
-
           with open("app/build.gradle.kts", "w") as f:
               f.write(gradle)
 
-          # Safely patch App.kt line-by-line (skipping import lines!)
+          # Safely patch App.kt line-by-line (skipping import lines)
           app_kt = "app/src/main/java/com/pedro/streamer/App.kt"
           with open(app_kt, "r") as f:
               lines = f.readlines()
@@ -97,7 +92,6 @@ jobs:
           with open(manifest_path, "w", encoding="utf-8") as f:
               f.write(text)
           '
-          cat app/src/main/java/com/pedro/streamer/App.kt
 
       - name: Build Unsigned Release APK
         run: ./gradlew :app:assembleRelease --no-daemon
