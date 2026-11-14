@@ -41,14 +41,14 @@ jobs:
           with open("app/build.gradle.kts", "w") as f:
               f.write(gradle)
 
-          # 2. Patch App.kt to call MultiDex.install(this) before onCreate()
+          # 2. Patch App.kt to extend MultiDexApplication() instead of Application()
           app_kt = "app/src/main/java/com/pedro/streamer/App.kt"
           with open(app_kt, "r") as f:
               kt = f.read()
 
-          if "MultiDex.install" not in kt:
-              kt = kt.replace("import android.app.Application", "import android.app.Application\nimport android.content.Context\nimport androidx.multidex.MultiDex")
-              kt = kt.replace("override fun onCreate()", "override fun attachBaseContext(base: Context?) {\n        super.attachBaseContext(base)\n        MultiDex.install(this)\n    }\n\n    override fun onCreate()")
+          if "MultiDexApplication" not in kt:
+              kt = kt.replace("import android.app.Application", "import androidx.multidex.MultiDexApplication")
+              kt = kt.replace(": Application()", ": MultiDexApplication()")
 
           with open(app_kt, "w") as f:
               f.write(kt)
