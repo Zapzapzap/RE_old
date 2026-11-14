@@ -18,7 +18,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-          
+
       - name: Patch app/build.gradle.kts and AndroidManifest for API 16
         run: |
           sed -i 's/minSdk = [0-9]\+/minSdk = 16/g' app/build.gradle.kts
@@ -30,7 +30,7 @@ jobs:
           else
             sed -i 's|<application|<uses-sdk tools:overrideLibrary="androidx.security, com.google.android.material, androidx.constraintlayout, androidx.appcompat, androidx.core, androidx.activity, androidx.fragment, androidx.lifecycle.runtime, androidx.savedstate" />\n    <application|' app/src/main/AndroidManifest.xml
           fi
-      
+
       - name: Build Unsigned Release APK
         run: ./gradlew :app:assembleRelease --no-daemon
 
