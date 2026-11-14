@@ -25,23 +25,38 @@ jobs:
           python3 -c '
           import re
 
-          # 1. Patch app/build.gradle.kts for Multidex + disable R8 stripping
+          # 1. Append explicit overrides to app/build.gradle.kts so nothing earlier can re-enable R8
           with open("app/build.gradle.kts", "r") as f:
               gradle = f.read()
-
-          if "multiDexEnabled" not in gradle:
-              gradle = gradle.replace("minSdk = 16", "minSdk = 16\n        multiDexEnabled = true")
 
           if "androidx.multidex:multidex" not in gradle:
               gradle = gradle.replace("dependencies {", "dependencies {\n    implementation(\"androidx.multidex:multidex:2.0.1\")")
 
-          gradle = re.sub(r"isMinifyEnabled\s*=\s*true", "isMinifyEnabled = false", gradle)
-          gradle = re.sub(r"isShrinkResources\s*=\s*true", "isShrinkResources = false", gradle)
+          gradle += """
+
+          android {
+              defaultConfig {
+                  minSdk = 16
+                  multiDexEnabled = true
+              }
+              buildTypes {
+                  getByName("release") {
+                      isMinifyEnabled = false
+                      isShrinkResources = false
+                      isDebuggable = false
+                  }
+              }
+          }
+          """
 
           with open("app/build.gradle.kts", "w") as f:
               f.write(gradle)
 
-          # 2. Patch App.kt to extend MultiDexApplication() instead of Application()
+          # 2. Keep all RootEncoder classes in ProGuard just in case
+          with open("app/proguard-rules.pro", "a") as f:
+              f.write("\n-keep class com.pedro.** { *; }\n-dontwarn com.pedro.**\n")
+
+          # 3. Patch App.kt to extend MultiDexApplication()
           app_kt = "app/src/main/java/com/pedro/streamer/App.kt"
           with open(app_kt, "r") as f:
               kt = f.read()
@@ -53,7 +68,7 @@ jobs:
           with open(app_kt, "w") as f:
               f.write(kt)
 
-          # 3. Patch AndroidManifest.xml overrideLibrary
+          # 4. Patch AndroidManifest.xml overrideLibrary
           manifest_path = "app/src/main/AndroidManifest.xml"
           with open(manifest_path, "r", encoding="utf-8") as f:
               text = f.read()
