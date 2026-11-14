@@ -34,11 +34,12 @@ jobs:
           if "androidx.multidex:multidex" not in gradle:
               gradle = gradle.replace("dependencies {", "dependencies {\n    implementation(\"androidx.multidex:multidex:2.0.1\")")
 
-          # Inject multiDexEnabled and multiDexKeepFile directly into existing defaultConfig
-          gradle = gradle.replace(
-              "minSdk = 16",
-              "minSdk = 16\n        multiDexEnabled = true\n        multiDexKeepFile = file(\"maindexlist.txt\")",
-              1
+          # Inject directly after defaultConfig { so it works even when minSdk uses libs.versions
+          gradle = re.sub(
+              r"defaultConfig\s*\{",
+              "defaultConfig {\n        minSdk = 16\n        multiDexEnabled = true\n        multiDexKeepFile = file(\"maindexlist.txt\")",
+              gradle,
+              count=1
           )
 
           gradle = re.sub(r"release\s*\{[^}]*\}", """release {
@@ -92,6 +93,7 @@ jobs:
           with open(manifest_path, "w", encoding="utf-8") as f:
               f.write(text)
           '
+          head -n 35 app/build.gradle.kts
 
       - name: Build Unsigned Release APK
         run: ./gradlew :app:assembleRelease --no-daemon
