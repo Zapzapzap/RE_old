@@ -57,14 +57,13 @@ jobs:
           with open("app/build.gradle.kts", "w") as f:
               f.write(gradle)
 
-          # Patch App.kt to extend MultiDexApplication and defer GlUtil init until after secondary DEXs load
+          # Patch App.kt using fully qualified names so no import lines can fail
           app_kt = "app/src/main/java/com/pedro/streamer/App.kt"
           with open(app_kt, "r") as f:
               kt = f.read()
 
-          kt = kt.replace("import android.app.Application", "import android.os.Handler\nimport android.os.Looper\nimport androidx.multidex.MultiDexApplication")
-          kt = kt.replace(": Application()", ": MultiDexApplication()")
-          kt = re.sub(r"(GlUtil\.[^\n]+)", r"Handler(Looper.getMainLooper()).post { \1 }", kt)
+          kt = re.sub(r":\s*(?:android\.app\.)?Application\(\)", ": androidx.multidex.MultiDexApplication()", kt)
+          kt = re.sub(r"(GlUtil\.[^\n]+)", r"android.os.Handler(android.os.Looper.getMainLooper()).post { \1 }", kt)
 
           with open(app_kt, "w") as f:
               f.write(kt)
