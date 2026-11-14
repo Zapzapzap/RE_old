@@ -58,10 +58,10 @@ jobs:
           command -v apktool >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y apktool)
           DEBUG_APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
 
-          # Decode only AndroidManifest.xml (-s keeps classes.dex and resources untouched)
-          apktool d -s -f "$DEBUG_APK" -o unpacked_apk
+          # -s skips DEX disassembly, -r skips resource decoding (leaves resources.arsc untouched, avoiding aapt crash)
+          apktool d -s -r -f "$DEBUG_APK" -o unpacked_apk
           sed -i 's/android:debuggable="true"/android:debuggable="false"/g' unpacked_apk/AndroidManifest.xml
-          apktool b unpacked_apk -o unsigned_release.apk
+          apktool b --use-aapt2 unpacked_apk -o unsigned_release.apk
 
           # Zipalign and sign with custom release keystore (v1 + v2 for API 16)
           keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias mykey -storepass android123 -keypass android123 -dname "CN=Local,O=Dev,C=US"
