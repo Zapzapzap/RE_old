@@ -26,44 +26,26 @@ jobs:
           sed -i 's/isShrinkResources = true/isShrinkResources = false/g' app/build.gradle.kts
           python3 -c '
           import re
-          import xml.etree.ElementTree as ET
 
           path = "app/src/main/AndroidManifest.xml"
-          ET.register_namespace("android", "http://android.com")
-          ET.register_namespace("tools", "http://android.com")
+          with open(path, "r", encoding="utf-8") as f:
+              text = f.read()
 
-          tree = ET.parse(path)
-          root = tree.getroot()
-          tools_attr = "{http://android.com}overrideLibrary"
+          libs = "androidx.security, com.google.android.material, androidx.constraintlayout, androidx.appcompat, androidx.core, androidx.activity, androidx.fragment, androidx.lifecycle.runtime, androidx.savedstate"
 
-          uses_sdk = root.find("uses-sdk")
-          if uses_sdk is None:
-              uses_sdk = ET.Element("uses-sdk")
-              root.insert(0, uses_sdk)
+          if "xmlns:tools=" not in text:
+              text = re.sub(r"<manifest\b", "<manifest xmlns:tools=\"http://android.com\"", text, count=1)
 
-          existing = [x.strip() for x in uses_sdk.get(tools_attr, "").split(",") if x.strip()]
-          needed = [
-              "androidx.security",
-              "com.google.android.material",
-              "androidx.constraintlayout",
-              "androidx.appcompat",
-              "androidx.core",
-              "androidx.activity",
-              "androidx.fragment",
-              "androidx.lifecycle.runtime",
-              "androidx.savedstate",
-          ]
-          merged = list(dict.fromkeys(existing + needed))
-          uses_sdk.set(tools_attr, ", ".join(merged))
-
-          xml_str = ET.tostring(root, encoding="unicode")
-          if "xmlns:android=" not in xml_str.split(">")[0]:
-              xml_str = xml_str.replace("<manifest", "<manifest xmlns:android=\"http://android.com\"", 1)
-          if "xmlns:tools=" not in xml_str.split(">")[0]:
-              xml_str = xml_str.replace("<manifest", "<manifest xmlns:tools=\"http://android.com\"", 1)
+          if "<uses-sdk" in text:
+              if "tools:overrideLibrary=" in text:
+                  text = re.sub(r"tools:overrideLibrary=\"([^\"]*)\"", lambda m: f"tools:overrideLibrary=\"{m.group(1)}, {libs}\"", text, count=1)
+              else:
+                  text = re.sub(r"<uses-sdk\b", f"<uses-sdk tools:overrideLibrary=\"{libs}\"", text, count=1)
+          else:
+              text = re.sub(r"<application\b", f"<uses-sdk tools:overrideLibrary=\"{libs}\" />\n    <application", text, count=1)
 
           with open(path, "w", encoding="utf-8") as f:
-              f.write("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" + xml_str)
+              f.write(text)
           '
           head -n 15 app/src/main/AndroidManifest.xml
 
