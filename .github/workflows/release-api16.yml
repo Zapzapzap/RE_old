@@ -19,9 +19,13 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Patch Gradle, Multidex, and Manifest for API 16
+      - name: Patch Gradle, Primary DEX Rules, and Manifest for API 16
         run: |
           sed -i 's/minSdk = [0-9]\+/minSdk = 16/g' app/build.gradle.kts
+          cat << 'EOF' > app/multidex-config.pro
+          -keep class com.pedro.** { *; }
+          -keep class androidx.multidex.** { *; }
+          EOF
           python3 -c '
           import re
 
@@ -31,7 +35,6 @@ jobs:
           if "androidx.multidex:multidex" not in gradle:
               gradle = gradle.replace("dependencies {", "dependencies {\n    implementation(\"androidx.multidex:multidex:2.0.1\")")
 
-          # Replace release buildType so it inherits 100% of working debug settings, only setting isDebuggable = false
           gradle = re.sub(r"release\s*\{[^}]*\}", """release {
                   initWith(getByName("debug"))
                   isDebuggable = false
@@ -46,6 +49,7 @@ jobs:
               defaultConfig {
                   minSdk = 16
                   multiDexEnabled = true
+                  multiDexKeepProguard = file("multidex-config.pro")
               }
           }
           """
