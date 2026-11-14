@@ -19,16 +19,43 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Patch app/build.gradle.kts and AndroidManifest for API 16
+      - name: Patch Gradle, Multidex, and Manifest for API 16
         run: |
           sed -i 's/minSdk = [0-9]\+/minSdk = 16/g' app/build.gradle.kts
-          sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/g' app/build.gradle.kts
-          sed -i 's/isShrinkResources = true/isShrinkResources = false/g' app/build.gradle.kts
           python3 -c '
           import re
 
-          path = "app/src/main/AndroidManifest.xml"
-          with open(path, "r", encoding="utf-8") as f:
+          # 1. Patch app/build.gradle.kts for Multidex + disable R8 stripping
+          with open("app/build.gradle.kts", "r") as f:
+              gradle = f.read()
+
+          if "multiDexEnabled" not in gradle:
+              gradle = gradle.replace("minSdk = 16", "minSdk = 16\n        multiDexEnabled = true")
+
+          if "androidx.multidex:multidex" not in gradle:
+              gradle = gradle.replace("dependencies {", "dependencies {\n    implementation(\"androidx.multidex:multidex:2.0.1\")")
+
+          gradle = re.sub(r"isMinifyEnabled\s*=\s*true", "isMinifyEnabled = false", gradle)
+          gradle = re.sub(r"isShrinkResources\s*=\s*true", "isShrinkResources = false", gradle)
+
+          with open("app/build.gradle.kts", "w") as f:
+              f.write(gradle)
+
+          # 2. Patch App.kt to call MultiDex.install(this) before onCreate()
+          app_kt = "app/src/main/java/com/pedro/streamer/App.kt"
+          with open(app_kt, "r") as f:
+              kt = f.read()
+
+          if "MultiDex.install" not in kt:
+              kt = kt.replace("import android.app.Application", "import android.app.Application\nimport android.content.Context\nimport androidx.multidex.MultiDex")
+              kt = kt.replace("override fun onCreate()", "override fun attachBaseContext(base: Context) {\n        super.attachBaseContext(base)\n        MultiDex.install(this)\n    }\n\n    override fun onCreate()")
+
+          with open(app_kt, "w") as f:
+              f.write(kt)
+
+          # 3. Patch AndroidManifest.xml overrideLibrary
+          manifest_path = "app/src/main/AndroidManifest.xml"
+          with open(manifest_path, "r", encoding="utf-8") as f:
               text = f.read()
 
           libs = "androidx.security, com.google.android.material, androidx.constraintlayout, androidx.appcompat, androidx.core, androidx.activity, androidx.fragment, androidx.lifecycle.runtime, androidx.savedstate"
@@ -44,10 +71,9 @@ jobs:
           else:
               text = re.sub(r"<application\b", f"<uses-sdk tools:overrideLibrary=\"{libs}\" />\n    <application", text, count=1)
 
-          with open(path, "w", encoding="utf-8") as f:
+          with open(manifest_path, "w", encoding="utf-8") as f:
               f.write(text)
           '
-          head -n 15 app/src/main/AndroidManifest.xml
 
       - name: Build Unsigned Release APK
         run: ./gradlew :app:assembleRelease --no-daemon
