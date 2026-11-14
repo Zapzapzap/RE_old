@@ -57,16 +57,25 @@ jobs:
           with open("app/build.gradle.kts", "w") as f:
               f.write(gradle)
 
-          # Patch App.kt: extend MultiDexApplication and wrap GlUtil in try/catch
+          # Safely patch App.kt line-by-line (skipping import lines!)
           app_kt = "app/src/main/java/com/pedro/streamer/App.kt"
           with open(app_kt, "r") as f:
-              kt = f.read()
+              lines = f.readlines()
 
-          kt = re.sub(r":\s*(?:android\.app\.)?Application\(\)", ": androidx.multidex.MultiDexApplication()", kt)
-          kt = re.sub(r"(GlUtil\.[^\n]+)", r"try { \1 } catch (t: Throwable) { t.printStackTrace() }", kt)
+          new_lines = []
+          for line in lines:
+              if line.lstrip().startswith("import "):
+                  new_lines.append(line)
+              elif "Application()" in line:
+                  new_lines.append(re.sub(r":\s*(?:android\.app\.)?Application\(\)", ": androidx.multidex.MultiDexApplication()", line))
+              elif "GlUtil." in line:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  new_lines.append(f"{indent}try {{ {line.strip()} }} catch (t: Throwable) {{ t.printStackTrace() }}\n")
+              else:
+                  new_lines.append(line)
 
           with open(app_kt, "w") as f:
-              f.write(kt)
+              f.writelines(new_lines)
 
           manifest_path = "app/src/main/AndroidManifest.xml"
           with open(manifest_path, "r", encoding="utf-8") as f:
@@ -88,6 +97,7 @@ jobs:
           with open(manifest_path, "w", encoding="utf-8") as f:
               f.write(text)
           '
+          cat app/src/main/java/com/pedro/streamer/App.kt
 
       - name: Build Unsigned Release APK
         run: ./gradlew :app:assembleRelease --no-daemon
@@ -99,6 +109,7 @@ jobs:
           UNSIGNED_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
           $BUILD_TOOLS/zipalign -v -p 4 "$UNSIGNED_APK" aligned.apk
           $BUILD_TOOLS/apksigner sign --ks release.jks --ks-pass pass:android123 --v1-signing-enabled true --v2-signing-enabled true --out rootencoder-api16-release.apk aligned.apk
+          unzip -p rootencoder-api16-release.apk classes.dex | grep -a -o "Lcom/pedro/streamer/App;"
 
       - name: Upload Signed Release APK
         uses: actions/upload-artifact@v4
