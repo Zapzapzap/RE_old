@@ -48,7 +48,7 @@ jobs:
 
           if "MultiDex.install" not in kt:
               kt = kt.replace("import android.app.Application", "import android.app.Application\nimport android.content.Context\nimport androidx.multidex.MultiDex")
-              kt = kt.replace("override fun onCreate()", "override fun attachBaseContext(base: Context) {\n        super.attachBaseContext(base)\n        MultiDex.install(this)\n    }\n\n    override fun onCreate()")
+              kt = kt.replace("override fun onCreate()", "override fun attachBaseContext(base: Context?) {\n        super.attachBaseContext(base)\n        MultiDex.install(this)\n    }\n\n    override fun onCreate()")
 
           with open(app_kt, "w") as f:
               f.write(kt)
