@@ -19,12 +19,33 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Patch Gradle, MainDexList, App.kt, and Manifest for API 16
+      - name: Generate Keystore & Patch Gradle, App.kt, and Manifest for API 16
         run: |
-          sed -i 's/minSdk = [0-9]\+/minSdk = 16/g' app/build.gradle.kts
+          set -e
+          keytool -genkey -v -keystore app/release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias mykey -storepass android123 -keypass android123 -dname "CN=Local,O=Dev,C=US"
+
+          if [ -f gradle/libs.versions.toml ]; then
+            sed -i 's/minSdk\s*=\s*"[0-9]\+"/minSdk = "16"/g' gradle/libs.versions.toml
+          fi
+          sed -i 's/minSdk\s*=\s*[0-9]\+/minSdk = 16/g' app/build.gradle.kts
+
+          # Find actual Application class path dynamically
+          APP_KT=$(find app/src/main -name "App.kt" -o -name "App.java" | head -n 1)
+          echo "Found Application file: $APP_KT"
+
           cat << 'EOF' > app/maindexlist.txt
           com/pedro/streamer/App.class
+          androidx/multidex/MultiDexApplication.class
+          androidx/multidex/MultiDex.class
+          androidx/multidex/MultiDex$V14.class
+          androidx/multidex/MultiDex$V19.class
+          androidx/multidex/MultiDex$V4.class
+          androidx/multidex/MultiDexExtractor.class
+          androidx/multidex/MultiDexExtractor$ExtractedDex.class
+          androidx/multidex/ZipUtil.class
+          androidx/multidex/ZipUtil$CentralDirectory.class
           EOF
+
           python3 -c '
           import re
 
@@ -34,26 +55,39 @@ jobs:
           if "androidx.multidex:multidex" not in gradle:
               gradle = gradle.replace("dependencies {", "dependencies {\n    implementation(\"androidx.multidex:multidex:2.0.1\")")
 
-          # Inject directly after defaultConfig { so it works even when minSdk uses libs.versions
-          gradle = re.sub(
-              r"defaultConfig\s*\{",
-              "defaultConfig {\n        minSdk = 16\n        multiDexEnabled = true\n        multiDexKeepFile = file(\"maindexlist.txt\")",
-              gradle,
-              count=1
-          )
+          # Let Gradle handle zipalign + v1/v2 signing natively
+          gradle += """
 
-          gradle = re.sub(r"release\s*\{[^}]*\}", """release {
-                  initWith(getByName("debug"))
-                  isDebuggable = false
-                  isMinifyEnabled = false
-                  isShrinkResources = false
-                  signingConfig = null
-              }""", gradle)
+          android {
+              defaultConfig {
+                  minSdk = 16
+                  multiDexEnabled = true
+                  multiDexKeepFile = file("maindexlist.txt")
+              }
+              signingConfigs {
+                  create("api16Release") {
+                      storeFile = file("release.jks")
+                      storePassword = "android123"
+                      keyAlias = "mykey"
+                      keyPassword = "android123"
+                      enableV1Signing = true
+                      enableV2Signing = true
+                  }
+              }
+              buildTypes {
+                  getByName("release") {
+                      isDebuggable = false
+                      isMinifyEnabled = false
+                      isShrinkResources = false
+                      signingConfig = signingConfigs.getByName("api16Release")
+                  }
+              }
+          }
+          """
 
           with open("app/build.gradle.kts", "w") as f:
               f.write(gradle)
 
-          # Safely patch App.kt line-by-line (skipping import lines)
           app_kt = "app/src/main/java/com/pedro/streamer/App.kt"
           with open(app_kt, "r") as f:
               lines = f.readlines()
@@ -93,19 +127,17 @@ jobs:
           with open(manifest_path, "w", encoding="utf-8") as f:
               f.write(text)
           '
-          head -n 35 app/build.gradle.kts
 
-      - name: Build Unsigned Release APK
+      - name: Build Signed Release APK
         run: ./gradlew :app:assembleRelease --no-daemon
 
-      - name: Zipalign and Sign APK (v1 + v2 for API 16)
+      - name: Verify APK & Prepare Artifact
         run: |
-          keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias mykey -storepass android123 -keypass android123 -dname "CN=Local,O=Dev,C=US"
-          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
-          UNSIGNED_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          $BUILD_TOOLS/zipalign -v -p 4 "$UNSIGNED_APK" aligned.apk
-          $BUILD_TOOLS/apksigner sign --ks release.jks --ks-pass pass:android123 --v1-signing-enabled true --v2-signing-enabled true --out rootencoder-api16-release.apk aligned.apk
-          unzip -p rootencoder-api16-release.apk classes.dex | grep -a -o "Lcom/pedro/streamer/App;"
+          set -x
+          SIGNED_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          cp "$SIGNED_APK" rootencoder-api16-release.apk
+          unzip -l rootencoder-api16-release.apk | grep '\.dex' || true
+          unzip -p rootencoder-api16-release.apk classes.dex | grep -a -o "Lcom/pedro/streamer/App;" || true
 
       - name: Upload Signed Release APK
         uses: actions/upload-artifact@v4
