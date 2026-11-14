@@ -24,12 +24,40 @@ jobs:
           sed -i 's/minSdk = [0-9]\+/minSdk = 16/g' app/build.gradle.kts
           sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/g' app/build.gradle.kts
           sed -i 's/isShrinkResources = true/isShrinkResources = false/g' app/build.gradle.kts
-          grep -q 'xmlns:tools=' app/src/main/AndroidManifest.xml || sed -i 's|<manifest |<manifest xmlns:tools="http://android.com" |' app/src/main/AndroidManifest.xml
-          if grep -q '<uses-sdk' app/src/main/AndroidManifest.xml; then
-            sed -i 's|<uses-sdk|<uses-sdk tools:overrideLibrary="androidx.security, com.google.android.material, androidx.constraintlayout, androidx.appcompat, androidx.core, androidx.activity, androidx.fragment, androidx.lifecycle.runtime, androidx.savedstate"|' app/src/main/AndroidManifest.xml
-          else
-            sed -i 's|<application|<uses-sdk tools:overrideLibrary="androidx.security, com.google.android.material, androidx.constraintlayout, androidx.appcompat, androidx.core, androidx.activity, androidx.fragment, androidx.lifecycle.runtime, androidx.savedstate" />\n    <application|' app/src/main/AndroidManifest.xml
-          fi
+          python3 -c '
+          import xml.etree.ElementTree as ET
+
+          path = "app/src/main/AndroidManifest.xml"
+          ET.register_namespace("android", "http://android.com")
+          ET.register_namespace("tools", "http://android.com")
+
+          tree = ET.parse(path)
+          root = tree.getroot()
+          tools_attr = "{http://android.com}overrideLibrary"
+
+          uses_sdk = root.find("uses-sdk")
+          if uses_sdk is None:
+              uses_sdk = ET.Element("uses-sdk")
+              root.insert(0, uses_sdk)
+
+          existing = [x.strip() for x in uses_sdk.get(tools_attr, "").split(",") if x.strip()]
+          needed = [
+              "androidx.security",
+              "com.google.android.material",
+              "androidx.constraintlayout",
+              "androidx.appcompat",
+              "androidx.core",
+              "androidx.activity",
+              "androidx.fragment",
+              "androidx.lifecycle.runtime",
+              "androidx.savedstate",
+          ]
+          merged = list(dict.fromkeys(existing + needed))
+          uses_sdk.set(tools_attr, ", ".join(merged))
+
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+          '
+          head -n 15 app/src/main/AndroidManifest.xml
 
       - name: Build Unsigned Release APK
         run: ./gradlew :app:assembleRelease --no-daemon
