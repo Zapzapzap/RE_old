@@ -23,7 +23,8 @@ jobs:
         run: |
           sed -i 's/minSdk = [0-9]\+/minSdk = 16/g' app/build.gradle.kts
           cat << 'EOF' > app/multidex-config.pro
-          -keep class com.pedro.** { *; }
+          -keep class com.pedro.streamer.App { *; }
+          -keep class com.pedro.encoder.utils.gl.GlUtil { *; }
           -keep class androidx.multidex.** { *; }
           EOF
           python3 -c '
