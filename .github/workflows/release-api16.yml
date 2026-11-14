@@ -25,12 +25,20 @@ jobs:
           python3 -c '
           import re
 
-          # 1. Append explicit overrides to app/build.gradle.kts so nothing earlier can re-enable R8
           with open("app/build.gradle.kts", "r") as f:
               gradle = f.read()
 
           if "androidx.multidex:multidex" not in gradle:
               gradle = gradle.replace("dependencies {", "dependencies {\n    implementation(\"androidx.multidex:multidex:2.0.1\")")
+
+          # Replace release buildType so it inherits 100% of working debug settings, only setting isDebuggable = false
+          gradle = re.sub(r"release\s*\{[^}]*\}", """release {
+                  initWith(getByName("debug"))
+                  isDebuggable = false
+                  isMinifyEnabled = false
+                  isShrinkResources = false
+                  signingConfig = null
+              }""", gradle)
 
           gradle += """
 
@@ -39,24 +47,12 @@ jobs:
                   minSdk = 16
                   multiDexEnabled = true
               }
-              buildTypes {
-                  getByName("release") {
-                      isMinifyEnabled = false
-                      isShrinkResources = false
-                      isDebuggable = false
-                  }
-              }
           }
           """
 
           with open("app/build.gradle.kts", "w") as f:
               f.write(gradle)
 
-          # 2. Keep all RootEncoder classes in ProGuard just in case
-          with open("app/proguard-rules.pro", "a") as f:
-              f.write("\n-keep class com.pedro.** { *; }\n-dontwarn com.pedro.**\n")
-
-          # 3. Patch App.kt to extend MultiDexApplication()
           app_kt = "app/src/main/java/com/pedro/streamer/App.kt"
           with open(app_kt, "r") as f:
               kt = f.read()
@@ -68,7 +64,6 @@ jobs:
           with open(app_kt, "w") as f:
               f.write(kt)
 
-          # 4. Patch AndroidManifest.xml overrideLibrary
           manifest_path = "app/src/main/AndroidManifest.xml"
           with open(manifest_path, "r", encoding="utf-8") as f:
               text = f.read()
